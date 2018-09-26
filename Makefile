@@ -1,4 +1,4 @@
-VERSION=0.0.1
+VERSION=0.1.0
 LDFLAGS=-ldflags "-X main.Version=${VERSION}"
 all: wsgate-client
 
@@ -26,3 +26,4 @@ tag:
 	git tag v${VERSION}
 	git push origin v${VERSION}
 	git push origin master
+	goreleaser --rm-dist
