@@ -67,7 +67,7 @@ var wsRegexp = regexp.MustCompile("^http")
 
 func (p *Proxy) connectWS(ctx context.Context) (net.Conn, error) {
 	wsURL := wsRegexp.ReplaceAllString(p.upstream, "ws")
-	log.Printf("connecting to %s", wsURL)
+	// log.Printf("connecting to %s", wsURL)
 	wsConf, err := websocket.NewConfig(wsURL, p.upstream)
 	if err != nil {
 		return nil, fmt.Errorf("NewConfig failed: %v", err)
@@ -94,8 +94,7 @@ func (p *Proxy) connectWS(ctx context.Context) (net.Conn, error) {
 	}
 	conn, err := websocket.DialConfig(wsConf)
 	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("Dial to %q fail: %v", p.upstream, err)
+		return nil, fmt.Errorf("Dial to %s fail: %v", p.upstream, err)
 	}
 	conn.PayloadType = websocket.BinaryFrame
 	return conn, err
@@ -104,7 +103,7 @@ func (p *Proxy) connectWS(ctx context.Context) (net.Conn, error) {
 func (p *Proxy) handleConn(ctx context.Context, c net.Conn) error {
 	s, err := p.connectWS(ctx)
 	if err != nil {
-		log.Printf("Failed to connect backend:%v. listen:%s client:%s", err, p.listen, c.RemoteAddr().String())
+		log.Printf("Failed to connect backend:%v listen:%s client:%s", err, p.listen, c.RemoteAddr().String())
 		c.Close()
 		return err
 	}
