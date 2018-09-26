@@ -73,7 +73,13 @@ func (p *Proxy) connectWS(ctx context.Context) (net.Conn, error) {
 		return nil, fmt.Errorf("NewConfig failed: %v", err)
 	}
 
-	wsConf.Header = p.header
+	h2 := make(http.Header, len(p.header))
+	for k, vv := range p.header {
+		vv2 := make([]string, len(vv))
+		copy(vv2, vv)
+		h2[k] = vv2
+	}
+	wsConf.Header = h2
 	if p.gr.Enabled() {
 		t, tErr := p.gr.Get(ctx)
 		if tErr != nil {
@@ -88,6 +94,7 @@ func (p *Proxy) connectWS(ctx context.Context) (net.Conn, error) {
 	}
 	conn, err := websocket.DialConfig(wsConf)
 	if err != nil {
+		conn.Close()
 		return nil, fmt.Errorf("Dial to %q fail: %v", p.upstream, err)
 	}
 	conn.PayloadType = websocket.BinaryFrame
