@@ -14,6 +14,7 @@ import (
 
 	flags "github.com/jessevdk/go-flags"
 	proxy "github.com/kazeburo/wsgate-client/proxy"
+	token "github.com/kazeburo/wsgate-client/token"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -29,6 +30,7 @@ type cmdOpts struct {
 	ConnectTimeout time.Duration `long:"connect-timeout" default:"60s" description:"timeout of connection to upstream"`
 	Version        bool          `short:"v" long:"version" description:"Show version"`
 	Headers        []string      `shrot:"H" long:"headers" description:"Header key and value added to upsteam"`
+	PrivateKeyFile string        `long:"private-key" description:"private key for signing auth header"`
 }
 
 func main() {
@@ -50,6 +52,19 @@ Compiler: %s %s
 	}
 
 	ctx := context.Background()
+
+	var gr *token.Generator
+	if opts.PrivateKeyFile != "" {
+		gr, err = token.NewGenerator(opts.PrivateKeyFile)
+		if err != nil {
+			log.Fatalf("Failed to init token generator: %v", err)
+		}
+		_, err = gr.Get(ctx)
+		if err != nil {
+			log.Fatalf("Failed to get token: %v", err)
+		}
+		go gr.Run(ctx)
+	}
 
 	headerRegexp := regexp.MustCompile(`^(.+?):\s*(.+)$`)
 	headers := http.Header{}
@@ -78,7 +93,7 @@ Compiler: %s %s
 				log.Fatalf("Invalid line in %s: %s", opts.MapFile, s.Text())
 			}
 			log.Printf("Create map: %s => %s", l[0], l[1])
-			p, err := proxy.NewProxy(l[0], opts.ConnectTimeout, l[1], headers)
+			p, err := proxy.NewProxy(l[0], opts.ConnectTimeout, l[1], headers, gr)
 			if err != nil {
 				log.Fatalf("could not listen %s: %v", l[0], err)
 			}

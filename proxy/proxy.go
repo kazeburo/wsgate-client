@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/kazeburo/wsgate-client/token"
 	"golang.org/x/net/websocket"
 )
 
@@ -24,11 +25,12 @@ type Proxy struct {
 	timeout  time.Duration
 	upstream string
 	header   http.Header
+	gr       *token.Generator
 	done     chan struct{}
 }
 
 // NewProxy create new proxy
-func NewProxy(listen string, timeout time.Duration, upstream string, header http.Header) (*Proxy, error) {
+func NewProxy(listen string, timeout time.Duration, upstream string, header http.Header, gr *token.Generator) (*Proxy, error) {
 	addr, err := net.ResolveTCPAddr("tcp", listen)
 	if err != nil {
 		return nil, err
@@ -43,6 +45,7 @@ func NewProxy(listen string, timeout time.Duration, upstream string, header http
 		timeout:  timeout,
 		upstream: upstream,
 		header:   header,
+		gr:       gr,
 		done:     make(chan struct{}),
 	}, nil
 }
@@ -69,7 +72,16 @@ func (p *Proxy) connectWS(ctx context.Context) (net.Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("NewConfig failed: %v", err)
 	}
+
 	wsConf.Header = p.header
+	if p.gr.Enabled() {
+		t, tErr := p.gr.Get(ctx)
+		if tErr != nil {
+			return nil, fmt.Errorf("Failed to generate token: %v", tErr)
+		}
+		wsConf.Header.Add("Authorization", fmt.Sprintf("Bearer %s", t))
+	}
+
 	wsConf.Dialer = &net.Dialer{
 		Timeout:   p.timeout,
 		KeepAlive: 10 * time.Second,
