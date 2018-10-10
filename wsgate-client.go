@@ -13,6 +13,8 @@ import (
 	"time"
 
 	flags "github.com/jessevdk/go-flags"
+	iap "github.com/kazeburo/wsgate-client/iap"
+	privatekey "github.com/kazeburo/wsgate-client/privatekey"
 	proxy "github.com/kazeburo/wsgate-client/proxy"
 	token "github.com/kazeburo/wsgate-client/token"
 	"golang.org/x/sync/errgroup"
@@ -26,11 +28,13 @@ var (
 )
 
 type cmdOpts struct {
-	MapFile        string        `long:"map" description:"listen port and upstream url mapping file" required:"true"`
-	ConnectTimeout time.Duration `long:"connect-timeout" default:"60s" description:"timeout of connection to upstream"`
-	Version        bool          `short:"v" long:"version" description:"Show version"`
-	Headers        []string      `shrot:"H" long:"headers" description:"Header key and value added to upsteam"`
-	PrivateKeyFile string        `long:"private-key" description:"private key for signing auth header"`
+	MapFile           string        `long:"map" description:"listen port and upstream url mapping file" required:"true"`
+	ConnectTimeout    time.Duration `long:"connect-timeout" default:"60s" description:"timeout of connection to upstream"`
+	Version           bool          `short:"v" long:"version" description:"Show version"`
+	Headers           []string      `shrot:"H" long:"headers" description:"Header key and value added to upsteam"`
+	PrivateKeyFile    string        `long:"private-key" description:"private key for signing auth header"`
+	IapCredentialFile string        `long:"iap-credential" descrition:"GCP service account json file for using wsgate -server behind IAP enabled Cloud Load Balancer"`
+	IapClientID       string        `long:"iap-client-id" description:"IAP's OAuth2 Client ID"`
 }
 
 func main() {
@@ -51,14 +55,30 @@ Compiler: %s %s
 		return
 	}
 
+	if opts.IapCredentialFile != "" && opts.PrivateKeyFile != "" {
+		log.Fatalf("IapCredentialFile and PrivateKeyFile are exclusive")
+	}
+
 	ctx := context.Background()
 
-	var gr *token.Generator
+	var gr token.Generator
+	if opts.IapCredentialFile != "" {
+		if opts.IapClientID == "" {
+			log.Fatalf("IapClientID is required")
+		}
+		gr, err = iap.NewGenerator(opts.IapCredentialFile, opts.IapClientID)
+		if err != nil {
+			log.Fatalf("Failed to init iap token generator: %v", err)
+		}
+	}
 	if opts.PrivateKeyFile != "" {
-		gr, err = token.NewGenerator(opts.PrivateKeyFile)
+		gr, err = privatekey.NewGenerator(opts.PrivateKeyFile)
 		if err != nil {
 			log.Fatalf("Failed to init token generator: %v", err)
 		}
+	}
+
+	if gr.Enabled() {
 		_, err = gr.Get(ctx)
 		if err != nil {
 			log.Fatalf("Failed to get token: %v", err)

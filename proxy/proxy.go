@@ -25,12 +25,12 @@ type Proxy struct {
 	timeout  time.Duration
 	upstream string
 	header   http.Header
-	gr       *token.Generator
+	gr       token.Generator
 	done     chan struct{}
 }
 
 // NewProxy create new proxy
-func NewProxy(listen string, timeout time.Duration, upstream string, header http.Header, gr *token.Generator) (*Proxy, error) {
+func NewProxy(listen string, timeout time.Duration, upstream string, header http.Header, gr token.Generator) (*Proxy, error) {
 	addr, err := net.ResolveTCPAddr("tcp", listen)
 	if err != nil {
 		return nil, err
