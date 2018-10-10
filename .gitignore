@@ -24,6 +24,7 @@ _testmain.go
 *.prof
 
 wsgate-client
+map.txt
 vendor/
 dist/
 *~
