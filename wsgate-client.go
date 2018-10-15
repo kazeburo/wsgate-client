@@ -33,7 +33,7 @@ type cmdOpts struct {
 	Version           bool          `short:"v" long:"version" description:"Show version"`
 	Headers           []string      `shrot:"H" long:"headers" description:"Header key and value added to upsteam"`
 	PrivateKeyFile    string        `long:"private-key" description:"private key for signing auth header"`
-	IapCredentialFile string        `long:"iap-credential" descrition:"GCP service account json file for using wsgate -server behind IAP enabled Cloud Load Balancer"`
+	IapCredentialFile string        `long:"iap-credential" description:"GCP service account json file for using wsgate -server behind IAP enabled Cloud Load Balancer"`
 	IapClientID       string        `long:"iap-client-id" description:"IAP's OAuth2 Client ID"`
 }
 

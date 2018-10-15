@@ -34,8 +34,10 @@ Application Options:
   -v, --version          Show version
       --headers=         Header key and value added to upsteam
       --private-key=     private key for signing auth header
+      --iap-credential=  GCP service account json file for using wsgate -server behind IAP enabled Cloud Load Balancer
+      --iap-client-id=   IAP's OAuth2 Client ID
 
 Help Options:
   -h, --help             Show this help message
-
 ```
+
