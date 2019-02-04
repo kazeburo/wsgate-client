@@ -13,10 +13,11 @@ import (
 	"time"
 
 	flags "github.com/jessevdk/go-flags"
+	"github.com/kazeburo/wsgate-client/defaults"
 	iap "github.com/kazeburo/wsgate-client/iap"
 	privatekey "github.com/kazeburo/wsgate-client/privatekey"
 	proxy "github.com/kazeburo/wsgate-client/proxy"
-	token "github.com/kazeburo/wsgate-client/token"
+	"github.com/kazeburo/wsgate-client/token"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -61,7 +62,7 @@ Compiler: %s %s
 
 	ctx := context.Background()
 
-	var gr token.Generator
+	var gr token.Generator = defaults.NewGenerator()
 	if opts.IapCredentialFile != "" {
 		if opts.IapClientID == "" {
 			log.Fatalf("IapClientID is required")
@@ -70,8 +71,7 @@ Compiler: %s %s
 		if err != nil {
 			log.Fatalf("Failed to init iap token generator: %v", err)
 		}
-	}
-	if opts.PrivateKeyFile != "" {
+	} else if opts.PrivateKeyFile != "" {
 		gr, err = privatekey.NewGenerator(opts.PrivateKeyFile)
 		if err != nil {
 			log.Fatalf("Failed to init token generator: %v", err)
