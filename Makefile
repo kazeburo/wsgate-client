@@ -1,4 +1,4 @@
-VERSION=0.1.2
+VERSION=0.1.3
 LDFLAGS=-ldflags "-X main.Version=${VERSION}"
 all: wsgate-client
 
