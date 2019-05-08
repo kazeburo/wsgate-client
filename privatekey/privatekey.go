@@ -21,6 +21,7 @@ const (
 type Generator struct {
 	mu             *sync.RWMutex
 	privateKeyFile string
+	privateKeyUser string
 	signKey        *rsa.PrivateKey
 	tkn            string
 	exp            time.Time
@@ -28,7 +29,7 @@ type Generator struct {
 }
 
 // NewGenerator new renewer
-func NewGenerator(privateKeyFile string) (*Generator, error) {
+func NewGenerator(privateKeyFile, privateKeyUser string) (*Generator, error) {
 	signBytes, err := ioutil.ReadFile(privateKeyFile)
 	if err != nil {
 		return nil, err
@@ -40,6 +41,7 @@ func NewGenerator(privateKeyFile string) (*Generator, error) {
 
 	return &Generator{
 		privateKeyFile: privateKeyFile,
+		privateKeyUser: privateKeyUser,
 		signKey:        signKey,
 		mu:             new(sync.RWMutex),
 	}, nil
@@ -58,6 +60,7 @@ func (g *Generator) Gen(ctx context.Context) (string, error) {
 		IssuedAt:  iat.Unix(),
 		ExpiresAt: exp.Unix(),
 		Issuer:    "wsgatet-client",
+		Subject:   g.privateKeyUser,
 	})
 	tokenString, err := t.SignedString(g.signKey)
 	if err != nil {

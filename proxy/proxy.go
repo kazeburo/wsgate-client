@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/kazeburo/wsgate-client/token"
@@ -52,14 +54,41 @@ func NewProxy(listen string, timeout time.Duration, upstream string, header http
 
 // Start start new proxy
 func (p *Proxy) Start(ctx context.Context) error {
-
+	wg := &sync.WaitGroup{}
+	defer func() {
+		wg.Wait()
+	}()
+	go func() {
+		select {
+		case <-ctx.Done():
+			p.server.Close()
+		}
+	}()
 	for {
 		conn, err := p.server.AcceptTCP()
 		if err != nil {
+			if ne, ok := err.(net.Error); ok {
+				if ne.Temporary() {
+					continue
+				}
+			}
+			if strings.Contains(err.Error(), "use of closed network connection") {
+				select {
+				case <-ctx.Done():
+					return nil
+				default:
+					// fallthrough
+				}
+			}
 			return err
 		}
+
 		conn.SetNoDelay(true)
-		go p.handleConn(ctx, conn)
+		wg.Add(1)
+		go func(c net.Conn) {
+			defer wg.Done()
+			p.handleConn(ctx, c)
+		}(conn)
 	}
 }
 
