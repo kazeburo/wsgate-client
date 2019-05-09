@@ -7,9 +7,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"regexp"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	flags "github.com/jessevdk/go-flags"
@@ -31,9 +33,11 @@ var (
 type cmdOpts struct {
 	MapFile           string        `long:"map" description:"listen port and upstream url mapping file" required:"true"`
 	ConnectTimeout    time.Duration `long:"connect-timeout" default:"60s" description:"timeout of connection to upstream"`
+	ShutdownTimeout   time.Duration `long:"shutdown_timeout" default:"1h"  description:"timeout to wait for all connections to be closed."`
 	Version           bool          `short:"v" long:"version" description:"Show version"`
 	Headers           []string      `shrot:"H" long:"headers" description:"Header key and value added to upsteam"`
-	PrivateKeyFile    string        `long:"private-key" description:"private key for signing auth header"`
+	PrivateKeyFile    string        `long:"private-key" description:"private key for signing JWT auth header"`
+	PrivateKeyUser    string        `long:"private-key-user" default:"private-key-user" description:"user id which is used as Subject in JWT payload"`
 	IapCredentialFile string        `long:"iap-credential" description:"GCP service account json file for using wsgate -server behind IAP enabled Cloud Load Balancer"`
 	IapClientID       string        `long:"iap-client-id" description:"IAP's OAuth2 Client ID"`
 }
@@ -61,6 +65,20 @@ Compiler: %s %s
 	}
 
 	ctx := context.Background()
+	eg, ctx := errgroup.WithContext(ctx)
+	ctx, cancel := context.WithCancel(ctx)
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGTERM)
+	eg.Go(func() error {
+		select {
+		case <-sigChan:
+			cancel()
+			return nil
+		}
+	})
+
+	defer cancel()
 
 	var gr token.Generator = defaults.NewGenerator()
 	if opts.IapCredentialFile != "" {
@@ -72,7 +90,7 @@ Compiler: %s %s
 			log.Fatalf("Failed to init iap token generator: %v", err)
 		}
 	} else if opts.PrivateKeyFile != "" {
-		gr, err = privatekey.NewGenerator(opts.PrivateKeyFile)
+		gr, err = privatekey.NewGenerator(opts.PrivateKeyFile, opts.PrivateKeyUser)
 		if err != nil {
 			log.Fatalf("Failed to init token generator: %v", err)
 		}
@@ -113,7 +131,7 @@ Compiler: %s %s
 				log.Fatalf("Invalid line in %s: %s", opts.MapFile, s.Text())
 			}
 			log.Printf("Create map: %s => %s", l[0], l[1])
-			p, err := proxy.NewProxy(l[0], opts.ConnectTimeout, l[1], headers, gr)
+			p, err := proxy.NewProxy(l[0], opts.ConnectTimeout, opts.ShutdownTimeout, l[1], headers, gr)
 			if err != nil {
 				log.Fatalf("could not listen %s: %v", l[0], err)
 			}
@@ -121,12 +139,17 @@ Compiler: %s %s
 		}
 	}
 
-	var wg errgroup.Group
 	for key := range Mapping {
 		key := key
-		wg.Go(func() error {
-			return Mapping[key].Start(ctx)
+		eg.Go(func() error {
+			err := Mapping[key].Start(ctx)
+			if err != nil {
+				cancel()
+			}
+			return err
 		})
 	}
-	wg.Wait()
+	if err := eg.Wait(); err != nil {
+		log.Fatalf("failed to start proxy: %v", err)
+	}
 }

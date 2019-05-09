@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/kazeburo/wsgate-client/token"
@@ -20,17 +22,18 @@ const (
 
 // Proxy proxy struct
 type Proxy struct {
-	server   *net.TCPListener
-	listen   string
-	timeout  time.Duration
-	upstream string
-	header   http.Header
-	gr       token.Generator
-	done     chan struct{}
+	server          *net.TCPListener
+	listen          string
+	timeout         time.Duration
+	shutdownTimeout time.Duration
+	upstream        string
+	header          http.Header
+	gr              token.Generator
+	done            chan struct{}
 }
 
 // NewProxy create new proxy
-func NewProxy(listen string, timeout time.Duration, upstream string, header http.Header, gr token.Generator) (*Proxy, error) {
+func NewProxy(listen string, timeout, shutdownTimeout time.Duration, upstream string, header http.Header, gr token.Generator) (*Proxy, error) {
 	addr, err := net.ResolveTCPAddr("tcp", listen)
 	if err != nil {
 		return nil, err
@@ -40,26 +43,64 @@ func NewProxy(listen string, timeout time.Duration, upstream string, header http
 		return nil, err
 	}
 	return &Proxy{
-		server:   server,
-		listen:   listen,
-		timeout:  timeout,
-		upstream: upstream,
-		header:   header,
-		gr:       gr,
-		done:     make(chan struct{}),
+		server:          server,
+		listen:          listen,
+		timeout:         timeout,
+		shutdownTimeout: shutdownTimeout,
+		upstream:        upstream,
+		header:          header,
+		gr:              gr,
+		done:            make(chan struct{}),
 	}, nil
 }
 
 // Start start new proxy
 func (p *Proxy) Start(ctx context.Context) error {
-
+	wg := &sync.WaitGroup{}
+	defer func() {
+		c := make(chan struct{})
+		go func() {
+			defer close(c)
+			wg.Wait()
+		}()
+		select {
+		case <-c:
+			return
+		case <-time.After(p.shutdownTimeout):
+			return
+		}
+	}()
+	go func() {
+		select {
+		case <-ctx.Done():
+			p.server.Close()
+		}
+	}()
 	for {
 		conn, err := p.server.AcceptTCP()
 		if err != nil {
+			if ne, ok := err.(net.Error); ok {
+				if ne.Temporary() {
+					continue
+				}
+			}
+			if strings.Contains(err.Error(), "use of closed network connection") {
+				select {
+				case <-ctx.Done():
+					return nil
+				default:
+					// fallthrough
+				}
+			}
 			return err
 		}
+
 		conn.SetNoDelay(true)
-		go p.handleConn(ctx, conn)
+		wg.Add(1)
+		go func(c net.Conn) {
+			defer wg.Done()
+			p.handleConn(ctx, c)
+		}(conn)
 	}
 }
 
