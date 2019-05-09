@@ -33,10 +33,11 @@ var (
 type cmdOpts struct {
 	MapFile           string        `long:"map" description:"listen port and upstream url mapping file" required:"true"`
 	ConnectTimeout    time.Duration `long:"connect-timeout" default:"60s" description:"timeout of connection to upstream"`
+	ShutdownTimeout   time.Duration `long:"shutdown_timeout" default:"1h"  description:"timeout to wait for all connections to be closed."`
 	Version           bool          `short:"v" long:"version" description:"Show version"`
 	Headers           []string      `shrot:"H" long:"headers" description:"Header key and value added to upsteam"`
 	PrivateKeyFile    string        `long:"private-key" description:"private key for signing JWT auth header"`
-	PrivateKeyUser    string        `long:"private-key-user" default:"private-key-user" description:"user id which is used as subject in JWT payload"`
+	PrivateKeyUser    string        `long:"private-key-user" default:"private-key-user" description:"user id which is used as Subject in JWT payload"`
 	IapCredentialFile string        `long:"iap-credential" description:"GCP service account json file for using wsgate -server behind IAP enabled Cloud Load Balancer"`
 	IapClientID       string        `long:"iap-client-id" description:"IAP's OAuth2 Client ID"`
 }
@@ -130,7 +131,7 @@ Compiler: %s %s
 				log.Fatalf("Invalid line in %s: %s", opts.MapFile, s.Text())
 			}
 			log.Printf("Create map: %s => %s", l[0], l[1])
-			p, err := proxy.NewProxy(l[0], opts.ConnectTimeout, l[1], headers, gr)
+			p, err := proxy.NewProxy(l[0], opts.ConnectTimeout, opts.ShutdownTimeout, l[1], headers, gr)
 			if err != nil {
 				log.Fatalf("could not listen %s: %v", l[0], err)
 			}
