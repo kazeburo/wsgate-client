@@ -33,7 +33,7 @@ var (
 type cmdOpts struct {
 	MapFile           string        `long:"map" description:"listen port and upstream url mapping file" required:"true"`
 	ConnectTimeout    time.Duration `long:"connect-timeout" default:"60s" description:"timeout of connection to upstream"`
-	ShutdownTimeout   time.Duration `long:"shutdown_timeout" default:"1h"  description:"timeout to wait for all connections to be closed."`
+	ShutdownTimeout   time.Duration `long:"shutdown-timeout" default:"1h"  description:"timeout to wait for all connections to be closed."`
 	Version           bool          `short:"v" long:"version" description:"Show version"`
 	Headers           []string      `shrot:"H" long:"headers" description:"Header key and value added to upsteam"`
 	PrivateKeyFile    string        `long:"private-key" description:"private key for signing JWT auth header"`
