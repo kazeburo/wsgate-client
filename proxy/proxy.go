@@ -114,13 +114,19 @@ func (p *Proxy) connectWS(ctx context.Context) (net.Conn, error) {
 		return nil, fmt.Errorf("NewConfig failed: %v", err)
 	}
 
-	h2 := make(http.Header, len(p.header))
+	h2 := make(http.Header)
+	nv := 0
+	for _, vv := range p.header {
+		nv += len(vv)
+	}
+	sv := make([]string, nv)
 	for k, vv := range p.header {
-		vv2 := make([]string, len(vv))
-		copy(vv2, vv)
-		h2[k] = vv2
+		n := copy(sv, vv)
+		h2[k] = sv[:n:n]
+		sv = sv[n:]
 	}
 	wsConf.Header = h2
+
 	if p.gr.Enabled() {
 		t, tErr := p.gr.Get(ctx)
 		if tErr != nil {
