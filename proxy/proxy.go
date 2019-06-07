@@ -20,6 +20,10 @@ const (
 	bufferSize = 0xFFFF
 )
 
+var pool = sync.Pool{
+	New: func() interface{} { return make([]byte, 256*1024) },
+}
+
 // Proxy proxy struct
 type Proxy struct {
 	server          *net.TCPListener
@@ -161,7 +165,9 @@ func (p *Proxy) handleConn(ctx context.Context, c net.Conn) error {
 	// client => upstream
 	go func() {
 		defer func() { doneCh <- true }()
-		_, err := io.Copy(s, c)
+		buf := pool.Get().([]byte)
+		defer pool.Put(buf)
+		_, err := io.CopyBuffer(s, c, buf)
 		if err != nil {
 			if !goClose {
 				log.Printf("Copy from client: %v", err)
@@ -174,7 +180,9 @@ func (p *Proxy) handleConn(ctx context.Context, c net.Conn) error {
 	// upstream => client
 	go func() {
 		defer func() { doneCh <- true }()
-		_, err := io.Copy(c, s)
+		buf := pool.Get().([]byte)
+		defer pool.Put(buf)
+		_, err := io.CopyBuffer(c, s, buf)
 		if err != nil {
 			if !goClose {
 				log.Printf("Copy from upstream: %v", err)
