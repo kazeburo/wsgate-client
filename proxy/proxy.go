@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -170,7 +171,6 @@ func (p *Proxy) handleConn(ctx context.Context, c net.Conn) error {
 				}
 				return
 			}
-
 			if err := s.WriteMessage(websocket.BinaryMessage, b[:n]); err != nil {
 				if !goClose {
 					log.Printf("Copy from client: %v", err)
@@ -178,7 +178,6 @@ func (p *Proxy) handleConn(ctx context.Context, c net.Conn) error {
 				return
 			}
 		}
-		return
 	}()
 
 	// upstream => client
@@ -187,22 +186,24 @@ func (p *Proxy) handleConn(ctx context.Context, c net.Conn) error {
 		b := pool.Get().([]byte)
 		defer pool.Put(b)
 		for {
-			n, err := c.Read(b)
+			mt, r, err := s.NextReader()
 			if err != nil {
 				if !goClose {
 					log.Printf("Copy from upstream: %v", err)
 				}
 				return
 			}
-
-			if err := s.WriteMessage(websocket.BinaryMessage, b[:n]); err != nil {
+			if mt != websocket.BinaryMessage {
+				log.Printf("Copy from upstream: BinaryMessage required")
+				return
+			}
+			if _, err := io.CopyBuffer(c, r, b); err != nil {
 				if !goClose {
 					log.Printf("Copy from upstream: %v", err)
 				}
 				return
 			}
 		}
-		return
 	}()
 
 	<-doneCh
