@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -125,7 +126,12 @@ func (p *Proxy) connectWS(ctx context.Context) (*websocket.Conn, error) {
 		h2[k] = sv[:n:n]
 		sv = sv[n:]
 	}
-	h2.Add("Origin", p.upstream)
+
+	usURL, pErr := url.Parse(p.upstream)
+	if pErr != nil {
+		return nil, fmt.Errorf("Failed to parse upstream url: %v", pErr)
+	}
+	h2.Add("Origin", usURL.Scheme+"://"+usURL.Host)
 
 	if p.gr.Enabled() {
 		t, tErr := p.gr.Get(ctx)
