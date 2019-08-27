@@ -27,18 +27,19 @@ var pool = sync.Pool{
 
 // Proxy proxy struct
 type Proxy struct {
-	server          *net.TCPListener
-	listen          string
-	timeout         time.Duration
-	shutdownTimeout time.Duration
-	upstream        string
-	header          http.Header
-	gr              token.Generator
-	done            chan struct{}
+	server            *net.TCPListener
+	listen            string
+	timeout           time.Duration
+	shutdownTimeout   time.Duration
+	upstream          string
+	enableCompression bool
+	header            http.Header
+	gr                token.Generator
+	done              chan struct{}
 }
 
 // NewProxy create new proxy
-func NewProxy(listen string, timeout, shutdownTimeout time.Duration, upstream string, header http.Header, gr token.Generator) (*Proxy, error) {
+func NewProxy(listen string, timeout, shutdownTimeout time.Duration, upstream string, enableCompression bool, header http.Header, gr token.Generator) (*Proxy, error) {
 	addr, err := net.ResolveTCPAddr("tcp", listen)
 	if err != nil {
 		return nil, err
@@ -48,14 +49,15 @@ func NewProxy(listen string, timeout, shutdownTimeout time.Duration, upstream st
 		return nil, err
 	}
 	return &Proxy{
-		server:          server,
-		listen:          listen,
-		timeout:         timeout,
-		shutdownTimeout: shutdownTimeout,
-		upstream:        upstream,
-		header:          header,
-		gr:              gr,
-		done:            make(chan struct{}),
+		server:            server,
+		listen:            listen,
+		timeout:           timeout,
+		shutdownTimeout:   shutdownTimeout,
+		upstream:          upstream,
+		enableCompression: enableCompression,
+		header:            header,
+		gr:                gr,
+		done:              make(chan struct{}),
 	}, nil
 }
 
@@ -143,7 +145,7 @@ func (p *Proxy) connectWS(ctx context.Context) (*websocket.Conn, error) {
 
 	dialer := &websocket.Dialer{
 		HandshakeTimeout:  p.timeout,
-		EnableCompression: true,
+		EnableCompression: p.enableCompression,
 	}
 	conn, _, err := dialer.Dial(wsURL, h2)
 	if err != nil {
