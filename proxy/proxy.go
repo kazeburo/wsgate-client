@@ -7,13 +7,14 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/kazeburo/wsgate-client/token"
-	"golang.org/x/net/websocket"
 )
 
 const (
@@ -26,18 +27,19 @@ var pool = sync.Pool{
 
 // Proxy proxy struct
 type Proxy struct {
-	server          *net.TCPListener
-	listen          string
-	timeout         time.Duration
-	shutdownTimeout time.Duration
-	upstream        string
-	header          http.Header
-	gr              token.Generator
-	done            chan struct{}
+	server            *net.TCPListener
+	listen            string
+	timeout           time.Duration
+	shutdownTimeout   time.Duration
+	upstream          string
+	enableCompression bool
+	header            http.Header
+	gr                token.Generator
+	done              chan struct{}
 }
 
 // NewProxy create new proxy
-func NewProxy(listen string, timeout, shutdownTimeout time.Duration, upstream string, header http.Header, gr token.Generator) (*Proxy, error) {
+func NewProxy(listen string, timeout, shutdownTimeout time.Duration, upstream string, enableCompression bool, header http.Header, gr token.Generator) (*Proxy, error) {
 	addr, err := net.ResolveTCPAddr("tcp", listen)
 	if err != nil {
 		return nil, err
@@ -47,14 +49,15 @@ func NewProxy(listen string, timeout, shutdownTimeout time.Duration, upstream st
 		return nil, err
 	}
 	return &Proxy{
-		server:          server,
-		listen:          listen,
-		timeout:         timeout,
-		shutdownTimeout: shutdownTimeout,
-		upstream:        upstream,
-		header:          header,
-		gr:              gr,
-		done:            make(chan struct{}),
+		server:            server,
+		listen:            listen,
+		timeout:           timeout,
+		shutdownTimeout:   shutdownTimeout,
+		upstream:          upstream,
+		enableCompression: enableCompression,
+		header:            header,
+		gr:                gr,
+		done:              make(chan struct{}),
 	}, nil
 }
 
@@ -110,13 +113,9 @@ func (p *Proxy) Start(ctx context.Context) error {
 
 var wsRegexp = regexp.MustCompile("^http")
 
-func (p *Proxy) connectWS(ctx context.Context) (net.Conn, error) {
+func (p *Proxy) connectWS(ctx context.Context) (*websocket.Conn, error) {
 	wsURL := wsRegexp.ReplaceAllString(p.upstream, "ws")
 	// log.Printf("connecting to %s", wsURL)
-	wsConf, err := websocket.NewConfig(wsURL, p.upstream)
-	if err != nil {
-		return nil, fmt.Errorf("NewConfig failed: %v", err)
-	}
 
 	h2 := make(http.Header)
 	nv := 0
@@ -129,25 +128,30 @@ func (p *Proxy) connectWS(ctx context.Context) (net.Conn, error) {
 		h2[k] = sv[:n:n]
 		sv = sv[n:]
 	}
-	wsConf.Header = h2
+
+	usURL, pErr := url.Parse(p.upstream)
+	if pErr != nil {
+		return nil, fmt.Errorf("Failed to parse upstream url: %v", pErr)
+	}
+	h2.Add("Origin", usURL.Scheme+"://"+usURL.Host)
 
 	if p.gr.Enabled() {
 		t, tErr := p.gr.Get(ctx)
 		if tErr != nil {
 			return nil, fmt.Errorf("Failed to generate token: %v", tErr)
 		}
-		wsConf.Header.Add("Authorization", fmt.Sprintf("Bearer %s", t))
+		h2.Add("Authorization", fmt.Sprintf("Bearer %s", t))
 	}
 
-	wsConf.Dialer = &net.Dialer{
-		Timeout:   p.timeout,
-		KeepAlive: 10 * time.Second,
+	dialer := &websocket.Dialer{
+		HandshakeTimeout:  p.timeout,
+		EnableCompression: p.enableCompression,
 	}
-	conn, err := websocket.DialConfig(wsConf)
+	conn, _, err := dialer.Dial(wsURL, h2)
 	if err != nil {
 		return nil, fmt.Errorf("Dial to %s fail: %v", p.upstream, err)
 	}
-	conn.PayloadType = websocket.BinaryFrame
+
 	return conn, err
 }
 
@@ -165,31 +169,49 @@ func (p *Proxy) handleConn(ctx context.Context, c net.Conn) error {
 	// client => upstream
 	go func() {
 		defer func() { doneCh <- true }()
-		buf := pool.Get().([]byte)
-		defer pool.Put(buf)
-		_, err := io.CopyBuffer(s, c, buf)
-		if err != nil {
-			if !goClose {
-				log.Printf("Copy from client: %v", err)
+		b := pool.Get().([]byte)
+		defer pool.Put(b)
+		for {
+			n, err := c.Read(b)
+			if err != nil {
+				if !goClose {
+					log.Printf("Copy from client: %v", err)
+				}
+				return
+			}
+			if err := s.WriteMessage(websocket.BinaryMessage, b[:n]); err != nil {
+				if !goClose {
+					log.Printf("Copy from client: %v", err)
+				}
 				return
 			}
 		}
-		return
 	}()
 
 	// upstream => client
 	go func() {
 		defer func() { doneCh <- true }()
-		buf := pool.Get().([]byte)
-		defer pool.Put(buf)
-		_, err := io.CopyBuffer(c, s, buf)
-		if err != nil {
-			if !goClose {
-				log.Printf("Copy from upstream: %v", err)
+		b := pool.Get().([]byte)
+		defer pool.Put(b)
+		for {
+			mt, r, err := s.NextReader()
+			if err != nil {
+				if !goClose {
+					log.Printf("Copy from upstream: %v", err)
+				}
+				return
+			}
+			if mt != websocket.BinaryMessage {
+				log.Printf("Copy from upstream: BinaryMessage required")
+				return
+			}
+			if _, err := io.CopyBuffer(c, r, b); err != nil {
+				if !goClose {
+					log.Printf("Copy from upstream: %v", err)
+				}
 				return
 			}
 		}
-		return
 	}()
 
 	<-doneCh
