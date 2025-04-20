@@ -1,176 +1,135 @@
 package iap
 
-// based on https://github.com/b4b4r07/iap_curl/blob/master/iap.go
-
 import (
 	"context"
-	"crypto/rsa"
-	"crypto/x509"
 	"encoding/json"
-	"encoding/pem"
-	"errors"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
-	"net/url"
+	"os"
 	"sync"
 	"time"
 
-	"golang.org/x/oauth2"
+	jwtlib "github.com/golang-jwt/jwt/v5"
 	"golang.org/x/oauth2/google"
-	"golang.org/x/oauth2/jws"
-	"golang.org/x/oauth2/jwt"
 )
 
 const (
-	tokenURI        = "https://www.googleapis.com/oauth2/v4/token"
-	expireSec       = 3600
-	refreshInterval = 600
+	expireDuration  = time.Hour
+	refreshInterval = 600 * time.Second
 )
 
 // Generator jwt generator
 type Generator struct {
 	mu             *sync.RWMutex
-	jwtConfig      *jwt.Config
 	credentialFile string
+	credentialJSON *[]byte
 	iapClientID    string
-	signKey        *rsa.PrivateKey
-	tkn            string
-	exp            time.Time
-	cli            *http.Client
+	token          string
+	expiration     time.Time
+	tokenEndpoint  string
+	signJWT        func([]byte) (string, error)
 }
 
 // NewGenerator new renewer
 func NewGenerator(credentialFile string, iapClientID string) (*Generator, error) {
-	sa, err := ioutil.ReadFile(credentialFile)
+	sa, err := os.ReadFile(credentialFile)
 	if err != nil {
 		return nil, err
 	}
-	conf, err := google.JWTConfigFromJSON(sa)
-	if err != nil {
-		return nil, err
-	}
-	signKey, err := readRsaPrivateKey(conf.PrivateKey)
+
+	// Check if the file is a valid JSON
+	_, err = google.JWTConfigFromJSON(sa)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Generator{
-		jwtConfig:      conf,
 		credentialFile: credentialFile,
+		credentialJSON: &sa,
 		iapClientID:    iapClientID,
-		signKey:        signKey,
+		tokenEndpoint:  "https://oauth2.googleapis.com/token",
 		mu:             new(sync.RWMutex),
 	}, nil
 }
 
 // Enabled privateKeyFile is exists
 func (g *Generator) Enabled() bool {
-	return g.credentialFile != ""
-}
-
-func readRsaPrivateKey(bytes []byte) (*rsa.PrivateKey, error) {
-	block, _ := pem.Decode(bytes)
-	if block == nil {
-		return nil, errors.New("invalid private key data")
-	}
-
-	var key *rsa.PrivateKey
-	var err error
-	if block.Type == "RSA PRIVATE KEY" {
-		key, err = x509.ParsePKCS1PrivateKey(block.Bytes)
-		if err != nil {
-			return nil, err
-		}
-	} else if block.Type == "PRIVATE KEY" {
-		keyInterface, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-		if err != nil {
-			return nil, err
-		}
-		var ok bool
-		key, ok = keyInterface.(*rsa.PrivateKey)
-		if !ok {
-			return nil, errors.New("not RSA private key")
-		}
-	} else {
-		return nil, fmt.Errorf("invalid private key type: %s", block.Type)
-	}
-
-	key.Precompute()
-
-	if err := key.Validate(); err != nil {
-		return nil, err
-	}
-
-	return key, nil
+	return *g.credentialJSON != nil
 }
 
 // GetToken with service account
 func (g *Generator) GetToken(ctx context.Context) (string, error) {
-	iat := time.Now()
-	exp := iat.Add(expireSec * time.Second)
-	jwt := &jws.ClaimSet{
-		Iss: g.jwtConfig.Email,
-		Aud: tokenURI,
-		Iat: iat.Unix(),
-		Exp: exp.Unix(),
-		PrivateClaims: map[string]interface{}{
-			"target_audience": g.iapClientID,
-		},
-	}
-	jwsHeader := &jws.Header{
-		Algorithm: "RS256",
-		Typ:       "JWT",
-	}
-
-	msg, err := jws.Encode(jwsHeader, jwt, g.signKey)
+	conf, err := google.JWTConfigFromJSON(*g.credentialJSON)
 	if err != nil {
 		return "", err
 	}
 
-	v := url.Values{}
-	v.Set("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer")
-	v.Set("assertion", msg)
+	// IAPのAudience (OAuth2クライアントID)
+	audience := fmt.Sprintf("%s.apps.googleusercontent.com", g.iapClientID)
 
-	hc := oauth2.NewClient(ctx, nil)
-	resp, err := hc.PostForm(tokenURI, v)
+	// JWTの作成
+	iat := time.Now()
+	claims := jwtlib.MapClaims{
+		"iss":             conf.Email,
+		"sub":             conf.Email,
+		"aud":             "https://oauth2.googleapis.com/token",
+		"iat":             iat.Unix(),
+		"exp":             iat.Add(expireDuration).Unix(),
+		"target_audience": audience,
+	}
+
+	token := jwtlib.NewWithClaims(jwtlib.SigningMethodRS256, claims)
+	privateKey := conf.PrivateKey
+	var signedJWT string
+	if g.signJWT != nil {
+		signedJWT, err = g.signJWT(privateKey)
+		if err != nil {
+			return "", err
+		}
+	} else {
+		signedJWT, err = token.SignedString(privateKey)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	// Google OAuth2 エンドポイントにJWTを使ってトークンを取得
+	resp, err := http.PostForm(g.tokenEndpoint, map[string][]string{
+		"grant_type": {"urn:ietf:params:oauth:grant-type:jwt-bearer"},
+		"assertion":  {signedJWT},
+	})
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to get token: %s", resp.Status)
 	}
 
-	var tokenRes struct {
+	// JSONからaccess_tokenを抽出
+	var tokenResp struct {
 		AccessToken string `json:"access_token"`
-		TokenType   string `json:"token_type"`
-		IDToken     string `json:"id_token"`
-		ExpiresIn   int64  `json:"expires_in"`
 	}
-
-	if err := json.Unmarshal(body, &tokenRes); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
 		return "", err
 	}
 
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.tkn = tokenRes.IDToken
-	g.exp = exp
-	return tokenRes.IDToken, nil
+	g.token = tokenResp.AccessToken
+	g.expiration = iat.Add(expireDuration)
+	return tokenResp.AccessToken, nil
 }
 
 // Get access token
 func (g *Generator) Get(ctx context.Context) (string, error) {
 	g.mu.Lock()
-	token := g.tkn
-	expire := g.exp
+	token := g.token
+	expiration := g.expiration
 	g.mu.Unlock()
 	// return cahced token if the token is valid
-	if token != "" && time.Now().Before(expire) {
+	if token != "" && time.Now().Before(expiration) {
 		return token, nil
 	}
 	token, err := g.GetToken(ctx)
@@ -182,13 +141,13 @@ func (g *Generator) Get(ctx context.Context) (string, error) {
 
 // Run refresh token regularly
 func (g *Generator) Run(ctx context.Context) {
-	ticker := time.NewTicker(refreshInterval * time.Second)
+	ticker := time.NewTicker(refreshInterval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case _ = <-ticker.C:
+		case <-ticker.C:
 			_, err := g.GetToken(ctx)
 			if err != nil {
 				log.Printf("Regularly renewToken failed:%v", err)

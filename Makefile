@@ -1,14 +1,8 @@
 VERSION=0.4.0
-LDFLAGS=-ldflags "-X main.Version=${VERSION}"
+LDFLAGS=-ldflags "-w -s -X main.Version=${VERSION}"
 all: wsgate-client
 
 .PHONY: wsgate-client
-
-bundle:
-	dep ensure
-
-update:
-	dep ensure -update
 
 wsgate-client: wsgate-client.go
 	go build $(LDFLAGS) -o wsgate-client
@@ -16,14 +10,12 @@ wsgate-client: wsgate-client.go
 linux: wsgate-client.go
 	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o wsgate-client
 
+check:
+	go test -v ./...
+
 fmt:
 	go fmt ./...
 
 clean:
 	rm -rf wsgate-client
 
-tag:
-	git tag v${VERSION}
-	git push origin v${VERSION}
-	git push origin master
-	goreleaser --rm-dist
