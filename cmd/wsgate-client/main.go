@@ -16,9 +16,9 @@ import (
 
 	flags "github.com/jessevdk/go-flags"
 	"github.com/kazeburo/wsgate-client/defaults"
-	iap "github.com/kazeburo/wsgate-client/iap"
-	privatekey "github.com/kazeburo/wsgate-client/privatekey"
-	proxy "github.com/kazeburo/wsgate-client/proxy"
+	"github.com/kazeburo/wsgate-client/iap"
+	"github.com/kazeburo/wsgate-client/privatekey"
+	"github.com/kazeburo/wsgate-client/proxy"
 	"github.com/kazeburo/wsgate-client/token"
 	"golang.org/x/sync/errgroup"
 )
@@ -72,11 +72,9 @@ Compiler: %s %s
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM)
 	eg.Go(func() error {
-		select {
-		case <-sigChan:
-			cancel()
-			return nil
-		}
+		<-sigChan
+		cancel()
+		return nil
 	})
 
 	defer cancel()

@@ -23,7 +23,7 @@ _testmain.go
 *.test
 *.prof
 
-wsgate-client
+/wsgate-client
 map.txt
 vendor/
 dist/

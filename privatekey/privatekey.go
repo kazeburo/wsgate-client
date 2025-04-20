@@ -3,18 +3,17 @@ package privatekey
 import (
 	"context"
 	"crypto/rsa"
-	"io/ioutil"
 	"log"
-	"net/http"
+	"os"
 	"sync"
 	"time"
 
-	jwt "github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 const (
-	expireSec       = 60
-	refreshInterval = 10
+	expireDuration  = time.Minute
+	refreshInterval = 10 * time.Second
 )
 
 // Generator jwt generator
@@ -22,15 +21,14 @@ type Generator struct {
 	mu             *sync.RWMutex
 	privateKeyFile string
 	privateKeyUser string
-	signKey        *rsa.PrivateKey
-	tkn            string
-	exp            time.Time
-	cli            *http.Client
+	privateKey     *rsa.PrivateKey
+	token          string
+	expiration     time.Time
 }
 
 // NewGenerator new renewer
 func NewGenerator(privateKeyFile, privateKeyUser string) (*Generator, error) {
-	signBytes, err := ioutil.ReadFile(privateKeyFile)
+	signBytes, err := os.ReadFile(privateKeyFile)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +40,7 @@ func NewGenerator(privateKeyFile, privateKeyUser string) (*Generator, error) {
 	return &Generator{
 		privateKeyFile: privateKeyFile,
 		privateKeyUser: privateKeyUser,
-		signKey:        signKey,
+		privateKey:     signKey,
 		mu:             new(sync.RWMutex),
 	}, nil
 }
@@ -55,29 +53,31 @@ func (g *Generator) Enabled() bool {
 // Gen generate jwt token
 func (g *Generator) Gen(ctx context.Context) (string, error) {
 	iat := time.Now()
-	exp := iat.Add(expireSec * time.Second)
-	t := jwt.NewWithClaims(jwt.GetSigningMethod("RS256"), jwt.StandardClaims{
-		IssuedAt:  iat.Unix(),
-		ExpiresAt: exp.Unix(),
-		Issuer:    "wsgatet-client",
+	exp := iat.Add(expireDuration)
+
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.RegisteredClaims{
 		Subject:   g.privateKeyUser,
+		Issuer:    "wsgatet-client",
+		IssuedAt:  jwt.NewNumericDate(iat),
+		ExpiresAt: jwt.NewNumericDate(exp),
 	})
-	tokenString, err := t.SignedString(g.signKey)
+	tokenString, err := token.SignedString(g.privateKey)
+
 	if err != nil {
 		return "", err
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.tkn = tokenString
-	g.exp = exp
+	g.token = tokenString
+	g.expiration = exp
 	return tokenString, nil
 }
 
 // Get access token
 func (g *Generator) Get(ctx context.Context) (string, error) {
 	g.mu.Lock()
-	token := g.tkn
-	expire := g.exp
+	token := g.token
+	expire := g.expiration
 	g.mu.Unlock()
 	// return cahced token if the token is valid
 	if token != "" && time.Now().Before(expire) {
@@ -92,13 +92,13 @@ func (g *Generator) Get(ctx context.Context) (string, error) {
 
 // Run refresh token regularly
 func (g *Generator) Run(ctx context.Context) {
-	ticker := time.NewTicker(refreshInterval * time.Second)
+	ticker := time.NewTicker(refreshInterval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case _ = <-ticker.C:
+		case <-ticker.C:
 			_, err := g.Gen(ctx)
 			if err != nil {
 				log.Printf("Regularly generate token failed:%v", err)

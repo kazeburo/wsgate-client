@@ -1,11 +1,12 @@
 package proxy
 
 import (
-	"github.com/kazeburo/wsgate-client/defaults"
-	"github.com/stretchr/testify/assert"
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/kazeburo/wsgate-client/defaults"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestNewProxy(t *testing.T) {
@@ -18,7 +19,7 @@ func TestNewProxy(t *testing.T) {
 	header.Add("X-Test", "blah")
 	gr := defaults.NewGenerator()
 
-	proxy, err := NewProxy(listen, timeout, shutdownTimeout, upstream, header, gr)
+	proxy, err := NewProxy(listen, timeout, shutdownTimeout, upstream, false, header, gr)
 	assert.Nil(err)
 	if assert.NotNil(proxy) {
 		assert.NotNil(proxy.server)
@@ -30,9 +31,6 @@ func TestNewProxy(t *testing.T) {
 		assert.NotNil(proxy.done)
 	}
 
-	_, err = NewProxy("invalidaddress", timeout, shutdownTimeout, upstream, header, gr)
+	_, err = NewProxy("invalidaddress", timeout, shutdownTimeout, upstream, false, header, gr)
 	assert.NotNil(err)
-}
-
-func TestStart(t *testing.T) {
 }
