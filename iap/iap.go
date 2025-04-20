@@ -69,13 +69,13 @@ func (g *Generator) GetToken(ctx context.Context) (string, error) {
 	audience := fmt.Sprintf("%s.apps.googleusercontent.com", g.iapClientID)
 
 	// JWTの作成
-	exp := time.Now()
+	iat := time.Now()
 	claims := jwtlib.MapClaims{
 		"iss":             conf.Email,
 		"sub":             conf.Email,
 		"aud":             "https://oauth2.googleapis.com/token",
-		"iat":             exp.Unix(),
-		"exp":             exp.Add(expireDuration).Unix(),
+		"iat":             iat.Unix(),
+		"exp":             iat.Add(expireDuration).Unix(),
 		"target_audience": audience,
 	}
 
@@ -118,7 +118,8 @@ func (g *Generator) GetToken(ctx context.Context) (string, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.token = tokenResp.AccessToken
-	g.expiration = exp.Add(expireDuration)
+	g.expiration = iat.Add(expireDuration)
+	return tokenResp.AccessToken, nil
 }
 
 // Get access token
