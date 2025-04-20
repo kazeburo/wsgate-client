@@ -118,8 +118,7 @@ func (g *Generator) GetToken(ctx context.Context) (string, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.token = tokenResp.AccessToken
-	g.expiration = exp
-	return tokenResp.AccessToken, nil
+	g.expiration = exp.Add(expireDuration)
 }
 
 // Get access token
