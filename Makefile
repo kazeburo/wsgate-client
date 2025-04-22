@@ -13,6 +13,9 @@ linux: wsgate-client.go
 check:
 	go test -v ./...
 
+proccheck:
+	PATH="../wsgate-server:$(HOME)/go/bin:./:$(PATH)" prove -v -r t/
+
 fmt:
 	go fmt ./...
 
