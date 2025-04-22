@@ -14,13 +14,22 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: install apt dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libtest-tcp-perl libcache-memcached-perl memcached
+
       - name: Setup Go
         uses: actions/setup-go@v4
         with:
           go-version-file: go.mod
 
       - name: test
-        run: make check
+        run: |
+          go install github.com/kazeburo/wsgate-server/cmd/wsgate-server@latest
+          make check
+          make
+          make proccheck
         env:
           CGO_ENABLED: 0
 
