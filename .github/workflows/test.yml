@@ -26,7 +26,7 @@ jobs:
 
       - name: test
         run: |
-          go install github.com/kazebur/wsgate-server/cmd/wsgate-server@latest
+          go install github.com/kazeburo/wsgate-server/cmd/wsgate-server@latest
           make check
           make
           make proccheck
