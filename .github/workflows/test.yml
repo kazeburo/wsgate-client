@@ -17,7 +17,7 @@ jobs:
       - name: install apt dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libtest-tcp-perl libcache-memcached-perl memcached-server
+          sudo apt-get install -y libtest-tcp-perl libcache-memcached-perl memcached
 
       - name: Setup Go
         uses: actions/setup-go@v4
